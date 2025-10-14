@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reaction Time Tester</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #222;
+      color: white;
+    }
+
+    #screen {
+      width: 400px;
+      height: 250px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.3s;
+    }
+
+    .idle {
+      background-color: #555;
+    }
+
+    .countdown {
+      background-color: #777;
+    }
+
+    .ready {
+      background-color: #4CAF50;
+    }
+
+    .tooSoon {
+      background-color: #E53935;
+    }
+
+    #buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    #chartContainer {
+      width: 500px;
+      max-width: 90vw;
+      margin-top: 20px;
+      display: none;
+    }
+
+    button {
+      background-color: #444;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    button:hover {
+      background-color: #666;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>Reaction Time Tester</h1>
+  <div id="screen" class="idle">Click to start</div>
+  <div id="buttons">
+    <button id="viewHistogram">View Histogram</button>
+    <button id="resetData">Reset Data</button>
+  </div>
+  <div id="chartContainer">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <script>
+    const screen = document.getElementById("screen");
+    const viewBtn = document.getElementById("viewHistogram");
+    const resetBtn = document.getElementById("resetData");
+    const chartContainer = document.getElementById("chartContainer");
+    const chartCanvas = document.getElementById("chart");
+
+    let startTime, timeout;
+    let times = JSON.parse(localStorage.getItem("reactionTimes") || "[]");
+    let chart;
+    let state = 'idle'; // idle, countdown, ready, tooSoon
+
+    function saveTimes() {
+      localStorage.setItem("reactionTimes", JSON.stringify(times));
+    }
+
+    function randomDelay() {
+      return 2000 + Math.random() * 3000;
+    }
+
+    function startGreenTimer() {
+      state = 'countdown';
+      screen.className = 'countdown';
+      screen.textContent = 'Wait for green...';
+      timeout = setTimeout(() => {
+        state = 'ready';
+        screen.className = 'ready';
+        screen.textContent = 'Click!';
+        startTime = Date.now();
+      }, randomDelay());
+    }
+
+    screen.addEventListener("click", () => {
+      if (state === 'idle') {
+        startGreenTimer();
+      } else if (state === 'countdown') {
+        // clicked too early
+        clearTimeout(timeout);
+        state = 'tooSoon';
+        screen.className = 'tooSoon';
+        screen.textContent = 'Too soon! Wait for green.';
+        setTimeout(() => {
+          state = 'idle';
+          screen.className = 'idle';
+          screen.textContent = 'Click to start';
+        }, 1000);
+      } else if (state === 'ready') {
+        const reaction = Date.now() - startTime;
+        times.push(reaction);
+        saveTimes();
+        screen.textContent = `Reaction: ${reaction} ms (click to start next)`;
+        state = 'idle';
+        screen.className = 'idle';
+      } else if (state === 'tooSoon') {
+        // ignore clicks during warning
+        return;
+      }
+    });
+
+    // Histogram
+    viewBtn.addEventListener("click", () => {
+      if (times.length === 0) { alert("No data yet!"); return; }
+      chartContainer.style.display = "block";
+      const min = Math.floor(Math.min(...times));
+      const max = Math.ceil(Math.max(...times));
+      const range = max - min;
+      const numBins = 7;
+      const binWidth = Math.max(1, Math.round(range / numBins));
+
+      const bins = Array(numBins).fill(0);
+      const labels = [];
+      for (let i = 0; i < numBins; i++) {
+        const start = min + i * binWidth;
+        const end = start + binWidth;
+        labels.push(`${start}-${end}`);
+      }
+
+      times.forEach(t => {
+        let bin = Math.floor((t - min) / binWidth);
+        if (bin >= numBins) bin = numBins - 1;
+        bins[bin]++;
+      });
+
+      if (chart) chart.destroy();
+      chart = new Chart(chartCanvas, {
+        type: "bar",
+        data: { labels, datasets: [{ label: "Reaction Times", data: bins, backgroundColor: "#4CAF50" }] },
+        options: { scales: { y: { beginAtZero: true, title: { display: true, text: "Frequency" } }, x: { title: { display: true, text: "Reaction Time (ms)" } } } }
+      });
+    });
+
+    // Reset
+    resetBtn.addEventListener("click", () => {
+      if (confirm("Clear all saved reaction time data?")) {
+        times = [];
+        saveTimes();
+        if (chart) chart.destroy();
+        chartContainer.style.display = "none";
+        alert("Data cleared!");
+      }
+    });
+  </script>
+
+</body>
+
+</html>
