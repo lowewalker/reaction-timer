@@ -49,6 +49,10 @@
       background-color: #E53935;
     }
 
+    .tooSlow {
+      background-color: #FF9800;
+    }
+
     #buttons {
       display: flex;
       gap: 10px;
@@ -96,36 +100,52 @@
     const chartContainer = document.getElementById("chartContainer");
     const chartCanvas = document.getElementById("chart");
 
-    let startTime, timeout;
+    let startTime, timeout, slowTimer;
     let times = JSON.parse(localStorage.getItem("reactionTimes") || "[]");
     let chart;
-    let state = 'idle'; // idle, countdown, ready, tooSoon
+    let state = 'idle'; // idle, countdown, ready, tooSoon, tooSlow
 
     function saveTimes() {
       localStorage.setItem("reactionTimes", JSON.stringify(times));
     }
 
     function randomDelay() {
-      return 2000 + Math.random() * 3000;
+      return 2000 + Math.random() * 3000; // 2–5 seconds
     }
 
     function startGreenTimer() {
       state = 'countdown';
       screen.className = 'countdown';
       screen.textContent = 'Wait for green...';
+
       timeout = setTimeout(() => {
         state = 'ready';
         screen.className = 'ready';
         screen.textContent = 'Click!';
         startTime = Date.now();
+
+        // Start too-slow timer (1 second)
+        slowTimer = setTimeout(() => {
+          if (state === 'ready') {
+            state = 'tooSlow';
+            screen.className = 'tooSlow';
+            screen.textContent = 'Too slow! Try again.';
+            setTimeout(() => {
+              state = 'idle';
+              screen.className = 'idle';
+              screen.textContent = 'Click to start';
+            }, 1000);
+          }
+        }, 1000);
       }, randomDelay());
     }
 
     screen.addEventListener("click", () => {
       if (state === 'idle') {
         startGreenTimer();
+
       } else if (state === 'countdown') {
-        // clicked too early
+        // Clicked too early
         clearTimeout(timeout);
         state = 'tooSoon';
         screen.className = 'tooSoon';
@@ -135,15 +155,32 @@
           screen.className = 'idle';
           screen.textContent = 'Click to start';
         }, 1000);
+
       } else if (state === 'ready') {
+        clearTimeout(slowTimer);
         const reaction = Date.now() - startTime;
+
+        if (reaction > 1000) {
+          // Ignore overly slow clicks (failsafe)
+          state = 'tooSlow';
+          screen.className = 'tooSlow';
+          screen.textContent = 'Too slow! Try again.';
+          setTimeout(() => {
+            state = 'idle';
+            screen.className = 'idle';
+            screen.textContent = 'Click to start';
+          }, 1000);
+          return;
+        }
+
         times.push(reaction);
         saveTimes();
         screen.textContent = `Reaction: ${reaction} ms (click to start next)`;
         state = 'idle';
         screen.className = 'idle';
-      } else if (state === 'tooSoon') {
-        // ignore clicks during warning
+
+      } else if (state === 'tooSoon' || state === 'tooSlow') {
+        // Ignore clicks during warning
         return;
       }
     });
@@ -152,6 +189,7 @@
     viewBtn.addEventListener("click", () => {
       if (times.length === 0) { alert("No data yet!"); return; }
       chartContainer.style.display = "block";
+
       const min = Math.floor(Math.min(...times));
       const max = Math.ceil(Math.max(...times));
       const range = max - min;
@@ -160,6 +198,7 @@
 
       const bins = Array(numBins).fill(0);
       const labels = [];
+
       for (let i = 0; i < numBins; i++) {
         const start = min + i * binWidth;
         const end = start + binWidth;
@@ -175,8 +214,20 @@
       if (chart) chart.destroy();
       chart = new Chart(chartCanvas, {
         type: "bar",
-        data: { labels, datasets: [{ label: "Reaction Times", data: bins, backgroundColor: "#4CAF50" }] },
-        options: { scales: { y: { beginAtZero: true, title: { display: true, text: "Frequency" } }, x: { title: { display: true, text: "Reaction Time (ms)" } } } }
+        data: {
+          labels,
+          datasets: [{
+            label: "Reaction Times",
+            data: bins,
+            backgroundColor: "#4CAF50"
+          }]
+        },
+        options: {
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: "Frequency" } },
+            x: { title: { display: true, text: "Reaction Time (ms)" } }
+          }
+        }
       });
     });
 
